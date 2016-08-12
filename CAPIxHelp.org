@@ -1,0 +1,163 @@
+#+TITLE: CAPIx 2.0 帮助
+#+AUTHOR: aiwozhonghuaba
+#+OPTIONS: ^:{}
+
+* 简介
+  CAPIx是由于aiwozhonghuaba受不了CAPI的种种不足而开发的第三方\\
+  为了兼容以前的的CAPI作品, CAPIx的语法和CAPI是一样的, 只是在此基础之上做了加强, 使之更加人性化\\
+  本文档中的大部分内容来自http://www.bathome.net/thread-19238-1-1.html
+
+* 标识符
+  标识符用来添加在参数前面, 指定这个参数的类型
+  |      |      | <6>         |
+  | 符号 | 大小 | 意义        |
+  |------+------+-------------|
+  | .    | 1B   | 字节        |
+  | :    | 2B   | 短整形      |
+  | ;    | 4B   | 长整形      |
+  | ~    | 4B   | 浮点型      |
+  | `    | 8B   | 双浮点型    |
+  | #    | -    | 字符串(ANSI) |
+  | $    | -    | 字符串(Unicode) |
+  | *    | 4B   | 变量(的地址),可以后跟"; # $ "表示这个指针指向的变量的类型,默认为$ |
+  | @    | -    | 移动指针,后跟欲移动的距离 |
+
+* 基本命令 
+
+** Mem
+*** Alloc
+    Mem Alloc [size]
+    + 用途:申请一块内存
+    + 参数:[size]为该内存块的大小
+    + 返回值:该内存块的地址
+    + 注意:内存不用时需要释放, 避免造成内存泄漏
+*** Free
+    Mem Free [addr]
+    + 用途:释放一块内存
+    + 参数:[addr]为欲释放的内存地址
+*** Put
+    Mem Put [s][addr] [s][data] [s][data] ...
+    + 用途:将数据按格式写入内存地址中
+    + 参数:[s][addr]为欲写入的地址, [s]可选"; *". [s][data]为欲写入的数据, [s]可选". : ; ~ ` # $ * @"
+    + 注意:写入的数据量若超过该内存块的大小可能导致cmd崩溃
+*** Print
+    Mem Print [s][addr] [s][var] [s][var] ...
+    + 用途:将指定地址处的内容输出到变量中
+    + 参数:[s][addr]为内存地址, [s]可选"; *". [s][var]为输出参数, [s]可选". : ; ~ ` # $ * @", [var]为变量名
+*** Copy
+    Mem Copy [s][dst] [s][src] [sz]
+    + 用途:将源地址的一段内存复制到目标地址
+    + 参数:[s]可选"; *"
+
+** API
+*** Call
+    API Call [dll] [s][API] [s][data] [s][data] ...
+    + 用途:调用遵循stdcall协议的函数(一般为WINAPI)
+    + 参数:[dll]为dll相对路径, [API]为API函数全名, [s]为返回值类型, 默认为";", 可选"~ `". [s][data]为参数, [s]可选"; ~ ` $ # *"
+    + 返回值:该API的返回值
+*** Exec
+    API Exec [dll] [s][API] [s][data] [s][data] ...
+    + 用途:调用遵循cdecl协议的函数(一般除WINAPI以外都是)
+
+** CAPIDll
+   - CAPIll /? :: 返回CAPIx的基本信息
+   - CAPIDll Ver :: 返回CAPIx的版本, 保存在变量CAPI_Ret中
+
+* 实例
+** Mem Alloc Free
+   #+BEGIN_SRC bat -n
+@echo off
+set "CAPI=Mem Alloc 4"
+set "lpAddress=%CAPI_Ret%"
+echo %lpAddress%
+pauses
+set "CAPI=Mem Free %lpAddress%"s
+pause
+   #+END_SRC
+   创建了一块大小为4的内存，内存地址保存在lpAddress里\\
+   在批处理第一次暂停时，使用工具查看cmd.exe内存，可以看到在输出的地址处为4个空白字节的内存，第二次pause时，可以看到内存已经被释放
+** Mem Put
+   #+BEGIN_SRC bat -n
+@echo off
+set var=hello
+set data=0123456789
+set "CAPI=Mem Put *data .97 @1 :25105 #ab $ab *var"
+echo %data%
+pause
+   #+END_SRC
+   执行前data变量的内存内容为30 00 31 00 32 00 33 00 34 00 35 00 36 00 37 00 38 00 39 00\\
+   执行写入命令时，此时指针指向第1个字节，.97将1个字节为97写入，于是变成了61 00 31 00 ...，指针后移1位，指向第2个字节\\
+   @1将指针后移1位，此时指针指向第3个字节\\
+   :25105，此时指针指向第3个字节，将2个字节为25105写入，于是变成了61 00 62 11 32 00 ...，指针后移2位\\
+   #ab，此时指针指向第5位，将2个字节的ANSI字符串ab写入，于是变成了61 00 62 11 61 62 33 00 34 00 ...，指针后移2位\\
+   $ab，此时指针指向第7位，将4个字节的Unicode字符串ab写入，于是变成了61 00 62 11 61 62 61 00 62 00 ...，指针后移4位\\
+*var，此时指针指向第11位，将var变量的内容全部写入\\
+** Mem Copy
+#+BEGIN_SRC bat -n
+@echo off
+set var=hello
+set data=0123456789
+set "CAPI=Mem Copy *data *var 6"
+echo %data%
+pause
+#+END_SRC
+执行时，将var变量的前4个字节复制到data变量中，即是“hel”\\
+因此输出“hel3456789”
+** Mem Print
+#+BEGIN_SRC bat -n
+@echo off
+set var=0123456
+set "CAPI=Mem Print *var .output_1 @2 :output_2 @1 #output_3 $output_4"
+set output_
+pause
+#+END_SRC
+var变量的内容为30 00 31 00 32 00 33 00 34 00 35 00 36 00\\
+.output_1，此时指向第1个字节，将1字节的内容“31”放入output_1变量中，也就是48 \\
+@2，此时指针指向第2个字节，将指针后移2位，此时指针指向第4个字节\\
+:output_2，此时指针指向第4个字节，将2字节的内容“00 32”放入output_2变量中，也就是12800 \\
+@1，此时指针指向第6个字节，将指针后移1位，此时指针指向第7个字节\\
+#output_3，此时指针指向第7个字节，将接下来的内容作为ANSI字符串放入output_3变量中，也就是“33”，字符串3 \\
+$output_4，此时指针指向第9个字节，将接下来的内容作为Unicode字符串放入output_4变量中，也就是“34 00 35 00 36 00”，字符串456 \\
+
+** API Call
+#+BEGIN_SRC bat -n
+@echo off
+set "data=message"
+set "CAPI=API Call user32 MessageBoxW ;0 *data $title ;1"
+echo %CAPI_Ret%
+pause
+#+END_SRC
+调用API MessageBox，第一个参数为0，第二个参数为data变量的地址，第三个参数为Unicode字符串title，第四个参数为1\\
+由于CMD内部将变量data储存为Unicode，因此应使用Unicode版本的API，也就是MessageBoxW\\
+(aiwozhonghuaba注:CAPIx的*标识符得到了增强,可以使用*#data来强制将data转换为ANSI字符串\\
+
+** API Exec
+#+BEGIN_SRC bat -n 
+@echo off
+set "data=123|456|789"
+set CAPI=API Exec msvcrt sscanf *#data "#%d|%^d|%d" *;_1 *;_2
+echo %_1%  %_2%
+pause
+#+END_SRC
+调用C语言库函数sscanf,该函数遵循cdecl调用协定,因此只能使用Exec调用\\
+第一个参数*#data表示取变量data的内容, 转换为ANSI字符串, 第二个参数为sscanf的Format, 第三个和第四个参数取了两个整形变量地址\\
+
+
+#+begin_src bat -n
+@echo off
+set "CAPI=API Exec msvcrt `sqrt `666"
+echo %CAPI_Ret%
+pause
+#+end_src
+调用C语言库函数sqrt,且指定返回值类型为双浮点数
+
+* CAPIx相对CAPI有哪些改进
+  + "@"可以接受负值
+  + 参数类型中增加了浮点数和双浮点数
+  + 为函数返回值提供了类型指定
+  + "*"可以通过后更"; # $"来指定变量类型
+  + "*"不只是取变量内容, 而是取变量地址.API对该地址的修改会同步到变量中
+  + "Exec"命令的加入
+* 计划中的功能
+  + 对COM的支持
+(setq org-src-fontify-natively t)
