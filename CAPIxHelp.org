@@ -63,6 +63,14 @@
    - CAPIll /? :: 返回CAPIx的基本信息
    - CAPIDll Ver :: 返回CAPIx的版本, 保存在变量CAPI_Ret中
 
+** Var
+*** SetCall
+
+    - SetCall Enable :: 开启SetCall调用方式,即set CAPI=xxxx,返回值在变量CAPI_Re中t
+    - SetCall Disable :: 关闭SetCall调用方式(默认开启)
+*** GetCall
+    - GetCall Enable :: 开启GetCall调用方式,即echo %CAPI xxx%,返回值即%CAPI xxx%扩展的结果
+    - GetCall Disable :: 关闭GetCall调用方式(默认关闭)
 * 实例
 ** Mem Alloc Free
    #+BEGIN_SRC bat -n
