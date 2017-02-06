@@ -1,10 +1,11 @@
+//CAPIx 2.0
+
 /***********************************************************
 * Hook:http://blog.chinaunix.net/uid-660282-id-2414901.html
 * Call:http://blog.csdn.net/yhz/article/details/1484073
 ************************************************************/
 
 //TODO:调整if的顺序(也许会略微提高速度)
-//TODO:CAPI_Err
 //TODO:int? uint?
 
 #include <windows.h>
@@ -44,6 +45,7 @@
 //11111
 
 #define SetEnvW ((PFNSETENVIRONMENTVARIABLE)bakSetEnv)
+#define GetEnvW ((PFNGETENVIRONMENTVARIABLE)bakGetEnv)
 
 
 //利用共用体共享一段内存的特性来实现强制类型转换
@@ -62,7 +64,8 @@ typedef union {
 
 
 // 定义SetEnvironmentVariableW函数原型
-typedef bool (WINAPI *PFNSETENVIRONMENTVARIABLE)(wchar_t *, wchar_t *);
+typedef bool  (WINAPI *PFNSETENVIRONMENTVARIABLE)(wchar_t *, wchar_t *);
+typedef DWORD (WINAPI *PFNGETENVIRONMENTVARIABLE)(wchar_t *, wchar_t *, DWORD);
 
 bool WINAPI SetCall_CAPI(wchar_t *, wchar_t *);
 bool CAPI(wchar_t *);
@@ -78,23 +81,38 @@ void MemCopy (int, wchar_t **);
 
 char* WcharToChar(wchar_t *);
 
-bool *bakSetEnv = (bool *)SetEnvironmentVariableW;     //保存函数的入口地址
-bool *bakGetEnv = (bool *)GetEnvironmentVariableW;
+bool *bakSetEnv  = (bool  *)SetEnvironmentVariableW;     //保存函数的入口地址
+DWORD *bakGetEnv = (DWORD *)GetEnvironmentVariableW;
 //bool *NewAddr = (bool *)CallCAPI;
 
 
 //-------------------------------------------------------主函数开始
 
-BOOL WINAPI DllMain(HINSTANCE hinstDLL,DWORD fdwReason,LPVOID lpvReserved)
+BOOL WINAPI DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpvReserved)
 {
-    if(fdwReason==DLL_PROCESS_ATTACH)
-    HookAPI(SetEnvironmentVariableW, SetCall_CAPI);
-
-    OleInitialize(NULL); //初始化COM调用功能
-    return TRUE;
+    //OleInitialize(NULL); //初始化COM调用功能
+    
+	if (dwReason == DLL_PROCESS_ATTACH)
+	{
+        HookAPI(SetEnvironmentVariableW, SetCall_CAPI);
+		DisableThreadLibraryCalls(hModule);
+		/*if(Load())
+		{
+			//LpkEditControl这个数组有14个成员，必须将其复制过来    
+			//memcpy((LPVOID)(LpkEditControl+1), (LPVOID)((int*)GetAddress("LpkEditControl") + 1),52);   
+			//_beginthread(Init,NULL,NULL);
+		}
+		else
+			return FALSE;*/
+	}
+	else if (dwReason == DLL_PROCESS_DETACH)
+	{
+		//Free();
+	}
+	return TRUE;
 }
 
-
+//随便给个导出函数,方便加载
 extern "C" DLL_EXPORT int Init(void)
 {
     return 0;
@@ -170,16 +188,16 @@ bool WINAPI SetCall_CAPI(wchar_t *varName, wchar_t *varValue)
     return true;
 }
 
-bool WINAPI GetCall_CAPI(wchar_t *varName, wchar_t* varValue, DWORD size)
+DWORD WINAPI GetCall_CAPI(wchar_t *varName, wchar_t* varValue, DWORD size)
 {
     if (!wcsnicmp(varName, L"CAPI", 4)) { //4 || 8 ??
         CAPI(varName + 5);
         wchar_t *ret = GetVar(L"CAPI_Ret");
         wcscpy(varValue, ret);
         free(ret);
-        return true;
+        return lstrlenW(varValue);
     }
-    return false;
+    return GetEnvW(varName, varValue, size);
 }
 
 /* 用完用内存需要手动释放! */
@@ -485,29 +503,30 @@ void APICallAndExec(int argc, wchar_t *argv[])
 
         char *tmp;
 
-        int       arg_list[MAX_ARG_NUMBERS]; //最多32个参数,没有进行越界检查(应该不会越界吧...)
-        void     *arg_list_varval[MAX_ARG_NUMBERS];
-        wchar_t  *arg_list_varname[MAX_ARG_NUMBERS];
-        void     *arg_to_free[MAX_ARG_NUMBERS];
+        int       ArgList[MAX_ARG_NUMBERS]; //最多32个参数,没有进行越界检查(应该不会越界吧...)
+        void     *ArgList_VarVal[MAX_ARG_NUMBERS]  = {NULL};
+        wchar_t  *ArgList_VarName[MAX_ARG_NUMBERS] = {NULL};
+        void     *ArgNeedFree[MAX_ARG_NUMBERS]	   = {NULL};
 
         int i, j;
         int tofree_i  = 0;
         int arglistvar_i = 0;
 
+        //判断是根据函数名加载 还是直接将参数转化为地址
         hProc    = (int)hLib == 1 ? (int *)wtoi(argv[3]) : (int *)GetProcAddress(hLib, ProcName);
         //printf("proc:%d\n", hProc);
         if (hProc != NULL) {
 
-            for (i = 4,j = 0; i < argc; ++i, ++j) {
-                //TODO:double float etc.
+            for (i = 4, j = 0; i < argc; ++i, ++j) {
+
                 switch (argv[i][0]) {
                 case TYPE_INT:
-                    arg_list[j] = wtoi((wchar_t *)&argv[i][1]);
+                    ArgList[j] = wtoi((wchar_t *)&argv[i][1]);
                     break;
                 case TYPE_FLOAT:
                     { //in this case can i use float_arg
                         float float_arg = (float)wtof((wchar_t *)&argv[i][1]);
-                        arg_list[j] = *(int *)&float_arg;
+                        ArgList[j] = *(int *)&float_arg;
                     }
                     break;
                 case TYPE_DOUBLE:
@@ -518,48 +537,48 @@ void APICallAndExec(int argc, wchar_t *argv[])
                     double_int.db = wtof((wchar_t *)&argv[i][1]);
                     //printf("f:%f\n", double_int.db);
                     //printf("f:%d-%d\n", double_int.i[0], double_int.i[1]);
-                    arg_list[j] = double_int.i[0];
-                    arg_list[j + 1] = double_int.i[1];
+                    ArgList[j] = double_int.i[0];
+                    ArgList[j + 1] = double_int.i[1];
                     ++j;
                     break;
                 case TYPE_USTR:
-                    arg_list[j] = (int)&argv[i][1];
+                    ArgList[j] = (int)&argv[i][1];
                     break;
                 case TYPE_ASTR:
-                    arg_list[j]      = (int)WcharToChar(&argv[i][1]);
-                    arg_to_free[tofree_i++] = (void *)arg_list[j];
+                    ArgList[j]      = (int)WcharToChar(&argv[i][1]);
+                    ArgNeedFree[tofree_i++] = (void *)ArgList[j];
                     break;
                 case TYPE_PTR:
-                    arg_list_varname[arglistvar_i] = &argv[i][1]; //保留标识符
-                    arg_list_varval[arglistvar_i]  = GetVar(&arg_list_varname[arglistvar_i][1]); //取变量名,丢弃标识符
+                    ArgList_VarName[arglistvar_i] = &argv[i][1]; //保留标识符
+                    ArgList_VarVal[arglistvar_i]  = GetVar(&ArgList_VarName[arglistvar_i][1]); //取变量名,丢弃标识符
 
                     switch (argv[i][1]) {
-                    case TYPE_INT: //申请4字节的内存保存在arg_list[j]
-                        arg_list[j]  = (int)malloc(sizeof(int)); //
-                        *(int *)arg_list[j] = wtoi((wchar_t *)arg_list_varval[arglistvar_i]);
-                        arg_list_varval[arglistvar_i]  = (void *)arg_list[j];
-                        //arg_to_free[tofree_i++]    = (void *)arg_list[j]; //arg_list_varval会释放一次，再释放会出问题
-                        break;
+                    case TYPE_INT: //申请4字节的内存保存在ArgList[j]
+                        ArgList[j]  = (int)malloc(sizeof(int)); //
+                        *(int *)ArgList[j] = wtoi((wchar_t *)ArgList_VarVal[arglistvar_i]);
+                        ArgList_VarVal[arglistvar_i]  = (void *)ArgList[j];
+                        //ArgNeedFree[tofree_i++]    = (void *)ArgList[j]; //ArgList_VarVal会释放一次，再释放会出问题
+                        break;                   
                         
                     case TYPE_ASTR:
-                        tmp = WcharToChar((wchar_t *)arg_list_varval[arglistvar_i]);
-                        memcpy(arg_list_varval[arglistvar_i], tmp, (strlen(tmp) + 1) * sizeof(char));
+                        tmp = WcharToChar((wchar_t *)ArgList_VarVal[arglistvar_i]);
+                        memcpy(ArgList_VarVal[arglistvar_i], tmp, (strlen(tmp) + 1) * sizeof(char));
                         free(tmp);
-                        arg_list[j] = (int)arg_list_varval[arglistvar_i];
+                        ArgList[j] = (int)ArgList_VarVal[arglistvar_i];
                         break;
                         
                     case TYPE_USTR:
-                        arg_list[j] = (int)arg_list_varval[arglistvar_i];
+                        ArgList[j] = (int)ArgList_VarVal[arglistvar_i];
                         break;
                         
                     default:
                         argv[i][0] = TYPE_USTR;
-                        free(arg_list_varval[arglistvar_i]);
-                        arg_list_varname[arglistvar_i] = &argv[i][0];
-                        arg_list_varval[arglistvar_i]  = GetVar(&arg_list_varname[arglistvar_i][1]);
-                        arg_list[j] = (int)arg_list_varval[arglistvar_i];
+                        free(ArgList_VarVal[arglistvar_i]);
+                        ArgList_VarName[arglistvar_i] = &argv[i][0];
+                        ArgList_VarVal[arglistvar_i]  = GetVar(&ArgList_VarName[arglistvar_i][1]);
+                        ArgList[j] = (int)ArgList_VarVal[arglistvar_i];
                         //fprintf(stderr, "ERROR:未知标识符 %c%c", argv[i][0], argv[i][1]);
-                        //arg_list[l] = malloc(MAX_LENGTH_OF_ENVVARIABLE * sizeof(wchar_t));
+                        //ArgList[l] = malloc(MAX_LENGTH_OF_ENVVARIABLE * sizeof(wchar_t));
                         break;
                     }
                     ++arglistvar_i;
@@ -574,14 +593,18 @@ void APICallAndExec(int argc, wchar_t *argv[])
             // 由于参数是从右往左压栈的,所以第二个参数为数组的尾地址
             // 第三个参数为数组长度
             CAPI_Ret *capi_ret;
+            
             if (argv[1][0] == 'C' || argv[1][0] == 'c') {
-                capi_ret = APIStdCall(hProc, &arg_list[j - 1], j, function_type);
-                //SetVar(L"CAPI_Ret", j == 0 ? hProc() : APIStdCall(hProc, &arg_list[j - 1], j));
+                capi_ret = APIStdCall(hProc, &ArgList[j - 1], j, function_type);
+                //SetVar(L"CAPI_Ret", j == 0 ? hProc() : APIStdCall(hProc, &ArgList[j - 1], j));
             } else {
-                capi_ret = APICdecl(hProc, &arg_list[j - 1], j, function_type);
-                //SetVar(L"CAPI_Ret", j == 0 ? hProc() : APICdecl(hProc, &arg_list[j - 1], j));
+                capi_ret = APICdecl(hProc, &ArgList[j - 1], j, function_type);
+                //SetVar(L"CAPI_Ret", j == 0 ? hProc() : APICdecl(hProc, &ArgList[j - 1], j));
             }
-
+            
+            //设置返回值
+            SetVar(L"CAPI_Err", (int)GetLastError());
+            
             switch (function_type) {
             case INT_FUNCTION:
                 SetVar(L"CAPI_Ret", capi_ret->_int[0]);
@@ -593,26 +616,28 @@ void APICallAndExec(int argc, wchar_t *argv[])
             }
 
             //CLEAN_AND_EXIT:
+            free(capi_ret);
+            
             for (i = 0; i < arglistvar_i; ++i) {
-                switch (arg_list_varname[i][0]) {
+                switch (ArgList_VarName[i][0]) {
                 case TYPE_INT:
-                    SetVar(&arg_list_varname[i][1], *((int *)arg_list_varval[i]));
+                    SetVar(&ArgList_VarName[i][1], *((int *)ArgList_VarVal[i]));
                     break;
                 case TYPE_USTR:
-                    SetEnvW(&arg_list_varname[i][1], (wchar_t *)arg_list_varval[i]);
+                    SetEnvW(&ArgList_VarName[i][1], (wchar_t *)ArgList_VarVal[i]);
                     break;
                 case TYPE_ASTR:
-                    tmp = WcharToChar(&arg_list_varname[i][1]);
-                    SetEnvironmentVariableA(tmp, (char *)arg_list_varval[i]);
+                    tmp = WcharToChar(&ArgList_VarName[i][1]);
+                    SetEnvironmentVariableA(tmp, (char *)ArgList_VarVal[i]);
                     free(tmp);
                     break;
                 }
 
-                //free(arg_list_varname[i]);
-                free(arg_list_varval[i]);
+                //free(ArgList_VarName[i]);
+                free(ArgList_VarVal[i]);
             }
             for (i = 0; i < tofree_i; ++i) { //释放申请的内存
-                free(arg_to_free[i]);
+                free(ArgNeedFree[i]);
             }
 
         } else {
@@ -658,17 +683,17 @@ bool CAPI(wchar_t *CmdLine)
         //com(argc, argv);
     } else if (!wcsicmp(argv[0], L"Var")) {
         if (!wcsicmp(argv[1], L"SetCall")) {
-			if (!wcsicmp(argv[2], L"Enable")) {
-				HookAPI(SetEnvironmentVariableW, SetCall_CAPI);
-			} else if (!wcsicmp(argv[2], L"Disable")) {
-				HookAPI(SetEnvironmentVariableW, bakSetEnv);
-			}
+            if (!wcsicmp(argv[2], L"Enable")) {
+                HookAPI(SetEnvironmentVariableW, SetCall_CAPI);
+            } else if (!wcsicmp(argv[2], L"Disable")) {
+                HookAPI(SetEnvironmentVariableW, bakSetEnv);
+            }
         } else if (!wcsicmp(argv[1], L"GetCall")) {
             if (!wcsicmp(argv[2], L"Enable")) {
-				HookAPI(GetEnvironmentVariableW, GetCall_CAPI);
-			} else if (!wcsicmp(argv[2], L"Disable")) {
-				HookAPI(GetEnvironmentVariableW, bakGetEnv);
-			}
+                HookAPI(GetEnvironmentVariableW, GetCall_CAPI);
+            } else if (!wcsicmp(argv[2], L"Disable")) {
+                HookAPI(GetEnvironmentVariableW, bakGetEnv);
+            }
         }
     } else if (!wcsicmp(argv[0], L"CAPIDll")) {
         if (!wcsicmp(argv[1], L"/?")) {
@@ -686,28 +711,6 @@ bool CAPI(wchar_t *CmdLine)
     return true;
 }
 
-//set capi=com init
-int com(int argc, wchar_t *argv[])
-{/*
-    if (!wcsicmp(argv[0], L"Init") {
-        ;
-    } else if (!wcsicmp(argv[0], L"Create") {
-        IComObject *pCOM;
-        CLSID clsid;
-        CLSIDFromProgID((LPCOLESTR)argv[1], &clsid);
-        CoCreateInstance(&clsid, NULL, CLSCTX_LOCAL_SERVER|CLSCTX_INPROC_SERVER, IID_OFCOMOBJECT, &pCOM);
-        SetVar(L"CAPI_Ret", (int)pCOM);
-    } else if (!wcsicmp(argv[0], L"Release")) {
-        ;
-    } else if (!wcsicmp(argv[0], L"Method")) {
-        ;
-    } else if (!wcsicmp(argv[0], L"Get")) {
-        ;
-    } else if (!wcsicmp(argv[0], L"Put")) {
-        ;
-    }*/
-    return 0;
-}
 
 CAPI_Ret* APIStdCall(void *hProc, int *arr, int len, short type)
 {
@@ -736,7 +739,7 @@ LOOP1:
 
         mov ebx, dword ptr [len]  ;//把len的值放入ebx
         SHL ebx, 2                ;//左移两位，这是可变参数的大小
-        add esp, ebx              ;//恢复堆栈指针 //API use __stdcall  needn't to add esp
+        //add esp, ebx              ;//恢复堆栈指针 //API use __stdcall  needn't to add esp
         xor eax, eax              ;//清空eax
     }
     
