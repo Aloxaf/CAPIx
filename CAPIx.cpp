@@ -1,4 +1,4 @@
-//CAPIx 2.0
+//CAPIx 2.0.1
 
 /***********************************************************
 * Hook:http://blog.chinaunix.net/uid-660282-id-2414901.html
@@ -698,7 +698,7 @@ bool CAPI(wchar_t *CmdLine)
     } else if (!wcsicmp(argv[0], L"CAPIDll")) {
         if (!wcsicmp(argv[1], L"/?")) {
             printf(
-            "\nCAPIx.dll (ver 2.0)\n"
+            "\nCAPIx.dll (ver 2.0.1)\n"
             "License:LGPL v3+\n"
             "Compiled By VC++ 6.0\n"
             "Code By aiwozhonghuaba\n\n"

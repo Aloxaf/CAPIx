@@ -149,6 +149,7 @@
     - SetCall Disable :: 关闭SetCall调用方式(默认开启)
 *** GetCall
     - GetCall Enable :: 开启GetCall调用方式,即echo %CAPI xxx%,返回值即%CAPI xxx%扩展的结果
+    - GetCall Disable :: 关闭GetCall调用方式 
 
 * 实例
 ** Mem Alloc Free
@@ -256,7 +257,7 @@ set CAPI=Mem Free %lpAddress%
 pause
 #+end_src
 
-* CAPx相对CAPI有哪些改进
+* CAPIx相对CAPI有哪些改进
   + "@"可以接受负值
   + 参数类型中增加了浮点数和双浮点数
   + 为函数返回值提供了类型
